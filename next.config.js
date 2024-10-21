@@ -1,13 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
   async rewrites() {
     return [
       {
         source: '/uploads/:path*',
-        destination: '/api/uploads/:path*',
+        destination: '/api/serve/:path*',
       },
     ];
   },
-};
+}
 
-export default nextConfig;
+module.exports = nextConfig
