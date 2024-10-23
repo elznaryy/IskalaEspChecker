@@ -13,10 +13,7 @@ export default function Home() {
   const [showCheckboxes, setShowCheckboxes] = useState(false);
   const [estimatedProgress, setEstimatedProgress] = useState(0);
   const [isDarkMode, setIsDarkMode] = useState(false); // State for dark mode
-  const [showHeaderModal, setShowHeaderModal] = useState(false);
-  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
-  const [domainColumn, setDomainColumn] = useState<string | null>(null);
-  const [dataColumn, setDataColumn] = useState<string | null>(null);
+
 
   const providerOptions = [
     { value: 'Google', label: 'Google' },
