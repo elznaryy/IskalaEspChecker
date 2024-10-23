@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { join } from 'path';
-import { createReadStream, createWriteStream } from 'fs';
 import csv from 'csv-parser';
-import { nanoid } from 'nanoid';
 import dns from 'dns';
 import { promisify } from 'util';
-import { mkdir, writeFile } from 'fs/promises';  // Use fs/promises for async file operations
 
 const resolveMx = promisify(dns.resolveMx);
 
@@ -27,6 +23,11 @@ const checkEmailProvider = async (domain: string): Promise<string> => {
   }
 };
 
+const normalizeDomain = (domain: string): string => {
+  // Remove protocol and www
+  return domain.replace(/^(https?:\/\/)?(www\.)?/, '').trim();
+};
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -39,38 +40,23 @@ export async function POST(req: NextRequest) {
 
     const selectedProviders = JSON.parse(providersJson);
 
-    const uploadsDir = join(process.cwd(), 'uploads');
-
-    // Use mkdir from fs/promises with the recursive option
-    await mkdir(uploadsDir, { recursive: true });
-
-    const filename = `${nanoid()}.csv`;
-    const filepath = join(uploadsDir, filename);
-
+    // Read the file into memory
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-
-    await writeFile(filepath, buffer);
 
     const domains: string[] = [];
     const results: { Domain: string; 'ESP Provider': string }[] = [];
 
-    interface CsvRow {
-      [key: string]: string;
-    }
+    // Process CSV content in memory
+    const csvContent = buffer.toString('utf-8');
+    const lines = csvContent.split('\n');
 
-    await new Promise((resolve, reject) => {
-      createReadStream(filepath)
-        .pipe(csv())
-        .on('data', (row: CsvRow) => {
-          const firstColumnValue = Object.values(row)[0];
-          if (firstColumnValue && typeof firstColumnValue === 'string') {
-            domains.push(firstColumnValue.trim());
-          }
-        })
-        .on('end', resolve)
-        .on('error', reject);
-    });
+    for (const line of lines) {
+      const domain = normalizeDomain(line);
+      if (domain) {
+        domains.push(domain);
+      }
+    }
 
     if (domains.length === 0) {
       return NextResponse.json({ success: false, message: 'No valid domains found in the CSV file' }, { status: 400 });
@@ -94,20 +80,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const outputFilename = `processed_${filename}`;
-    const outputFilepath = join(uploadsDir, outputFilename);
+    // Prepare CSV result in memory
     const csvHeader = 'Domain,ESP Provider\n';
-    const csvContent = filteredResults.map((row) => `${row.Domain},${row['ESP Provider']}`).join('\n');
+    const csvResult = filteredResults.map(row => `${row.Domain},${row['ESP Provider']}`).join('\n');
+    const finalCsv = csvHeader + csvResult;
 
-    await new Promise<void>((resolve, reject) => {
-      const writeStream = createWriteStream(outputFilepath);
-      writeStream.write(csvHeader + csvContent, (error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
-
-    return NextResponse.json({ success: true, fileUrl: `/uploads/${outputFilename}` });
+    // Return the CSV as a base64 encoded string
+    return NextResponse.json({ success: true, fileUrl: `data:text/csv;base64,${Buffer.from(finalCsv).toString('base64')}` });
   } catch (error) {
     console.error('Error processing file:', error);
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });

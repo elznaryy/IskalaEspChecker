@@ -12,6 +12,11 @@ export default function Home() {
   const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
   const [showCheckboxes, setShowCheckboxes] = useState(false);
   const [estimatedProgress, setEstimatedProgress] = useState(0);
+  const [isDarkMode, setIsDarkMode] = useState(false); // State for dark mode
+  const [showHeaderModal, setShowHeaderModal] = useState(false);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [domainColumn, setDomainColumn] = useState<string | null>(null);
+  const [dataColumn, setDataColumn] = useState<string | null>(null);
 
   const providerOptions = [
     { value: 'Google', label: 'Google' },
@@ -135,10 +140,29 @@ export default function Home() {
     }
   };
 
+  // Toggle dark mode
+  const toggleDarkMode = () => {
+    setIsDarkMode(prev => !prev);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-indigo-100 to-purple-100">
+    <div className={`min-h-screen flex flex-col ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gradient-to-br from-indigo-100 to-purple-100'}`}>
+      <header className="flex justify-between items-center p-4">
+        {/* Dark mode toggle button */}
+        <button 
+          onClick={toggleDarkMode} 
+          className="mt-4 p-2 rounded-md"
+          aria-label="Toggle Dark Mode"
+        >
+          {isDarkMode ? (
+            <span role="img" aria-label="Light Mode">🌞</span> // Sun icon for light mode
+          ) : (
+            <span role="img" aria-label="Dark Mode">🌜</span> // Moon icon for dark mode
+          )}
+        </button>
+      </header>
       <main className="flex-grow flex flex-col items-center justify-center p-8">
-        <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-8">
+        <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-8 dark:bg-gray-800">
           <h1 className="text-4xl font-bold mb-6 text-center text-indigo-700">Iskala ESP Checker</h1>
           
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -211,7 +235,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <p>© 2024 Iskala ESP Checker</p>
           <p>
-          <Link href="https://leadgen.iskala.net/" target="_blank" rel="noopener noreferrer" className="underline hover:text-indigo-200 transition duration-200">
+            <Link href="https://leadgen.iskala.net/" target="_blank" rel="noopener noreferrer" className="underline hover:text-indigo-200 transition duration-200">
               iskala
             </Link> | {' '}
             <Link href="https://www.linkedin.com/in/ahmed-elznary-82b66a1b7/" target="_blank" rel="noopener noreferrer" className="underline hover:text-indigo-200 transition duration-200">
