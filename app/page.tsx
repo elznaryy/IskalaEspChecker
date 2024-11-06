@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -12,7 +11,6 @@ import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { Sun, Moon,  Download } from 'lucide-react'
 import { FileUpload } from "@/components/shared/FileUplode"
-import { Header } from "@/components/ui/header"
 
 
 
@@ -36,7 +34,6 @@ export default function Component() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [selectedProviders, setSelectedProviders] = useState<string[]>([])
-  const [estimatedProgress, setEstimatedProgress] = useState(0)
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [csvHeaders, setCsvHeaders] = useState<ColumnOption[]>([])
   const [selectedDomainColumn, setSelectedDomainColumn] = useState<string>('')
@@ -123,7 +120,6 @@ export default function Component() {
     setDownloadLink(null)
     setIsProcessing(false)
     setProgress(0)
-    setEstimatedProgress(0)
     setSelectedProviders([])
     setCsvHeaders([])
     setShowColumnSelection(false)
@@ -257,6 +253,14 @@ export default function Component() {
                   disabled={isProcessing || !file || selectedProviders.length === 0}
                 >
                   {isProcessing ? 'Processing...' : 'Process File'}
+                </Button>
+
+                <Button
+                  onClick={resetState}
+                  className="w-full mt-2"
+                  variant="outline"
+                >
+                  Reset Form
                 </Button>
 
                 {isProcessing && (
