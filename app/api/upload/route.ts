@@ -1,94 +1,156 @@
 import { NextRequest, NextResponse } from 'next/server';
-// import csv from 'csv-parser'; // Removed unused import
 import dns from 'dns';
 import { promisify } from 'util';
 
 const resolveMx = promisify(dns.resolveMx);
 
-const checkEmailProvider = async (domain: string): Promise<string> => {
+// Cache for DNS results to prevent redundant lookups
+const dnsCache = new Map<string, {
+  result: DomainResult;
+  timestamp: number;
+}>();
+
+const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+const BATCH_SIZE = 50; // Process domains in batches
+
+interface DomainResult {
+  domain: string;
+  provider: string;
+  mxRecords: string[];
+}
+
+const checkEmailProvider = async (domain: string): Promise<DomainResult> => {
+  // Check cache first
+  const cached = dnsCache.get(domain);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.result;
+  }
+
   try {
     const mxRecords = await resolveMx(domain);
-    const mxHost = mxRecords[0]?.exchange.toLowerCase();
+    const mxHosts = mxRecords.map(record => record.exchange.toLowerCase());
 
-    if (mxHost?.includes('google') || mxHost?.includes('googlemail')) {
-      return 'G Suite';
-    } else if (mxHost?.includes('outlook') || mxHost?.includes('hotmail')) {
-      return 'Outlook';
+    let provider = 'Unknown';
+    
+    if (mxHosts.some(host => 
+      host.includes('google.com') || 
+      host.includes('googlemail.com')
+    )) {
+      provider = 'Google';
+    } else if (mxHosts.some(host => 
+      host.includes('outlook.com') || 
+      host.includes('office365.com') || 
+      host.includes('microsoft.com') ||
+      host.includes('hotmail.com')
+    )) {
+      provider = 'Outlook';
     } else {
-      return 'Other';
+      provider = 'Others';
     }
+
+    const result = {
+      domain,
+      provider,
+      mxRecords: mxHosts
+    };
+
+    // Cache the result
+    dnsCache.set(domain, {
+      result,
+      timestamp: Date.now()
+    });
+
+    return result;
   } catch (error) {
-    console.error(`Error resolving MX records for ${domain}:`, error);
-    return 'Error';
+    if (error instanceof Error) {
+      console.error(`DNS error for ${domain}: ${error.message}`);
+    }
+    return {
+      domain,
+      provider: 'Error',
+      mxRecords: []
+    };
   }
 };
 
 const normalizeDomain = (domain: string): string => {
-  // Remove protocol and www
-  return domain.replace(/^(https?:\/\/)?(www\.)?/, '').trim();
+  return domain
+    .replace(/^(https?:\/\/)?(www\.)?/, '')
+    .toLowerCase()
+    .trim();
 };
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const file = formData.get('file') as File | null;
-    const providersJson = formData.get('providers') as string | null;
+    const formData = await req.formData()
+    const file = formData.get('file') as File | null
+    const providersJson = formData.get('providers') as string | null
+    const domainColumn = parseInt(formData.get('domainColumn') as string)
+    const resultColumn = parseInt(formData.get('resultColumn') as string)
 
-    if (!file || !providersJson) {
-      return NextResponse.json({ success: false, message: 'No file uploaded or providers selected' }, { status: 400 });
+    // Validate input
+    if (!file || !providersJson || isNaN(domainColumn) || isNaN(resultColumn)) {
+      return NextResponse.json(
+        { success: false, message: 'Missing or invalid parameters' },
+        { status: 400 }
+      )
     }
 
-    const selectedProviders = JSON.parse(providersJson);
+    const selectedProviders = JSON.parse(providersJson)
+    const bytes = await file.arrayBuffer()
+    const csvContent = Buffer.from(bytes).toString('utf-8')
+    const lines = csvContent.split('\n').filter(line => line.trim())
 
-    // Read the file into memory
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    // Process CSV
+    const results = []
+    const headerRow = lines[0]
+    results.push(headerRow) // Preserve header row
 
-    const domains: string[] = [];
-    const results: { Domain: string; 'ESP Provider': string }[] = [];
+    for (let i = 1; i < lines.length; i += BATCH_SIZE) {
+      const batch = lines.slice(i, Math.min(i + BATCH_SIZE, lines.length))
+      const batchResults = await Promise.all(
+        batch.map(async (line) => {
+          const columns = line.split(',')
+          const domain = columns[domainColumn]?.trim()
 
-    // Process CSV content in memory
-    const csvContent = buffer.toString('utf-8');
-    const lines = csvContent.split('\n');
+          if (!domain?.includes('.')) return line
 
-    for (const line of lines) {
-      const domain = normalizeDomain(line);
-      if (domain) {
-        domains.push(domain);
-      }
+          try {
+            const normalizedDomain = normalizeDomain(domain)
+            const domainResult = await checkEmailProvider(normalizedDomain)
+            
+            if (
+              selectedProviders.includes('All') ||
+              selectedProviders.includes(domainResult.provider) ||
+              (selectedProviders.includes('GoogleAndOthers') && 
+                (domainResult.provider === 'Google' || domainResult.provider === 'Others')) ||
+              (selectedProviders.includes('OthersOnly') && domainResult.provider === 'Others')
+            ) {
+              columns[resultColumn] = domainResult.provider
+            }
+
+            return columns.join(',')
+          } catch (error) {
+            console.error(`Error processing ${domain}:`, error)
+            return line
+          }
+        })
+      )
+      results.push(...batchResults)
     }
 
-    if (domains.length === 0) {
-      return NextResponse.json({ success: false, message: 'No valid domains found in the CSV file' }, { status: 400 });
-    }
+    const finalCsv = results.join('\n')
 
-    for (const domain of domains) {
-      const provider = await checkEmailProvider(domain);
-      results.push({ Domain: domain, 'ESP Provider': provider });
-    }
+    return NextResponse.json({
+      success: true,
+      fileUrl: `data:text/csv;base64,${Buffer.from(finalCsv).toString('base64')}`
+    })
 
-    let filteredResults = results;
-
-    if (!selectedProviders.includes('All')) {
-      filteredResults = results.filter(result => {
-        const provider = result['ESP Provider'];
-        if (selectedProviders.includes('Google') && provider === 'G Suite') return true;
-        if (selectedProviders.includes('Outlook') && provider === 'Outlook') return true;
-        if (selectedProviders.includes('GoogleAndOthers') && (provider === 'G Suite' || provider === 'Other')) return true;
-        if (selectedProviders.includes('OthersOnly') && provider === 'Other') return true;
-        return false;
-      });
-    }
-
-    // Prepare CSV result in memory
-    const csvHeader = 'Domain,ESP Provider\n';
-    const csvResult = filteredResults.map(row => `${row.Domain},${row['ESP Provider']}`).join('\n');
-    const finalCsv = csvHeader + csvResult;
-
-    // Return the CSV as a base64 encoded string
-    return NextResponse.json({ success: true, fileUrl: `data:text/csv;base64,${Buffer.from(finalCsv).toString('base64')}` });
   } catch (error) {
-    console.error('Error processing file:', error);
-    return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
+    console.error('Processing error:', error)
+    return NextResponse.json(
+      { success: false, message: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    )
   }
 }
